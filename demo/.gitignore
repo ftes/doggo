@@ -42,3 +42,4 @@ npm-debug.log
 # Playwright
 /assets/test-results/
 /assets/playwright-report/
+/test-results/
