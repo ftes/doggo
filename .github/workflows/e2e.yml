@@ -74,6 +74,8 @@ jobs:
       - name: Install Playwright driver, browsers and system dependencies
         run: mix playwright.install -- chromium --with-deps
         working-directory: ./demo
+        env:
+          MIX_ENV: test
       - name: Build assets
         run: pnpm build:dev
       - name: Run end-to-end tests
