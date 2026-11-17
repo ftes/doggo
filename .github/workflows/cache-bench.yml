@@ -51,8 +51,8 @@ jobs:
           t chromium mix playwright.install -- chromium
           du -sh ~/.cache/ms-playwright
           t deps-chromium mix playwright.install -- chromium --with-deps
-          t deps-firefox mix playwright.install -- install-deps firefox
           t firefox mix playwright.install -- firefox
+          t deps-firefox-extra mix playwright.install -- firefox --with-deps
           t webkit mix playwright.install -- webkit
 
   warm:
@@ -105,8 +105,7 @@ jobs:
       - name: Dry-run package list (informational)
         working-directory: bench
         run: |
-          mix playwright.install -- install-deps --dry-run chromium || true
-          mix playwright.install -- install-deps --dry-run firefox || true
+          mix playwright.install -- --dry-run chromium || true
       - name: Install and diff package list
         id: list
         working-directory: bench
