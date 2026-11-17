@@ -32,6 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: {rep: [1, 2, 3]}
+    env: {JOB: cold}
     steps:
       - uses: erlef/setup-beam@v1
         with: {otp-version: "28", elixir-version: "1.19"}
@@ -43,12 +44,14 @@ jobs:
       - name: Bench
         working-directory: bench
         run: |
-          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH cold rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
+          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH $JOB rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
+          lsb_release -ds
           t driver mix playwright.install --no-browsers
           du -sh ~/.cache/playwright
           t chromium mix playwright.install -- chromium
           du -sh ~/.cache/ms-playwright
-          t deps mix playwright.install -- chromium --with-deps
+          t deps-chromium mix playwright.install -- chromium --with-deps
+          t deps-firefox mix playwright.install -- install-deps firefox
           t firefox mix playwright.install -- firefox
           t webkit mix playwright.install -- webkit
 
@@ -58,6 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: {rep: [1, 2, 3]}
+    env: {JOB: warm}
     steps:
       - uses: erlef/setup-beam@v1
         with: {otp-version: "28", elixir-version: "1.19"}
@@ -68,7 +72,8 @@ jobs:
           mix deps.get && mix compile
       - name: Mark start
         run: echo "RESTORE_START=$(date +%s.%N)" >> "$GITHUB_ENV"
-      - uses: actions/cache/restore@v4
+      - name: Restore dirs
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/playwright
@@ -78,9 +83,140 @@ jobs:
       - name: Bench
         working-directory: bench
         run: |
+          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH $JOB rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
           echo "BENCH warm rep=${{ matrix.rep }} restore $(echo "$(date +%s.%N) - $RESTORE_START" | bc)"
           du -sh ~/.cache/playwright ~/.cache/ms-playwright
-          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH warm rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
           t driver mix playwright.install --no-browsers
           t chromium mix playwright.install -- chromium
-          t deps mix playwright.install -- chromium --with-deps
+          t deps-chromium mix playwright.install -- chromium --with-deps
+
+  pkgs:
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+    steps:
+      - uses: erlef/setup-beam@v1
+        with: {otp-version: "28", elixir-version: "1.19"}
+      - name: Setup project
+        run: |
+          mix new bench && cd bench
+          sed -i 's|# {:dep_from_hexpm, "~> 0.3.0"}|{:playwright, "1.65.0-rc.1", hex: :playwright_ex}|' mix.exs
+          mix deps.get && mix compile
+      - name: Dry-run package list (informational)
+        working-directory: bench
+        run: |
+          mix playwright.install -- install-deps --dry-run chromium || true
+          mix playwright.install -- install-deps --dry-run firefox || true
+      - name: Install and diff package list
+        id: list
+        working-directory: bench
+        run: |
+          dpkg-query -W -f='${Package}\n' | sort > /tmp/before
+          mix playwright.install -- chromium --with-deps
+          dpkg-query -W -f='${Package}\n' | sort > /tmp/after
+          list=$(comm -13 /tmp/before /tmp/after | tr '\n' ' ')
+          echo "PKGS: $list"
+          echo "COUNT: $(echo $list | wc -w)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          ls /var/cache/apt/archives/*.deb | wc -l
+          du -shc /var/cache/apt/archives/*.deb | tail -1
+
+  apta-seed:
+    needs: pkgs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark start
+        run: echo "S=$(date +%s.%N)" >> "$GITHUB_ENV"
+      - uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: ${{ needs.pkgs.outputs.list }}
+          version: ${{ github.run_id }}
+      - run: echo "BENCH apta-seed action-wall $(echo "$(date +%s.%N) - $S" | bc)"
+
+  apta:
+    needs: [pkgs, apta-seed]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: {rep: [1, 2, 3]}
+    env: {JOB: apta}
+    steps:
+      - uses: erlef/setup-beam@v1
+        with: {otp-version: "28", elixir-version: "1.19"}
+      - name: Setup project
+        run: |
+          mix new bench && cd bench
+          sed -i 's|# {:dep_from_hexpm, "~> 0.3.0"}|{:playwright, "1.65.0-rc.1", hex: :playwright_ex}|' mix.exs
+          mix deps.get && mix compile
+      - name: Mark start
+        run: echo "S=$(date +%s.%N)" >> "$GITHUB_ENV"
+      - uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: ${{ needs.pkgs.outputs.list }}
+          version: ${{ github.run_id }}
+      - name: Bench
+        working-directory: bench
+        run: |
+          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH $JOB rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
+          echo "BENCH apta rep=${{ matrix.rep }} action-wall $(echo "$(date +%s.%N) - $S" | bc)"
+          mix playwright.install --no-browsers && mix playwright.install -- chromium
+          t deps-chromium mix playwright.install -- chromium --with-deps
+
+  aptb-seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: erlef/setup-beam@v1
+        with: {otp-version: "28", elixir-version: "1.19"}
+      - name: Setup project
+        run: |
+          mix new bench && cd bench
+          sed -i 's|# {:dep_from_hexpm, "~> 0.3.0"}|{:playwright, "1.65.0-rc.1", hex: :playwright_ex}|' mix.exs
+          mix deps.get && mix compile
+      - name: Pre-install driver and chromium (not the measured part)
+        working-directory: bench
+        run: mix playwright.install --no-browsers && mix playwright.install -- chromium
+      - name: Install deps and collect debs
+        working-directory: bench
+        run: |
+          mix playwright.install -- chromium --with-deps
+          mkdir -p ~/apt-debs && sudo cp /var/cache/apt/archives/*.deb ~/apt-debs/ && sudo chown -R $USER ~/apt-debs
+          ls ~/apt-debs | wc -l; du -sh ~/apt-debs
+      - name: Mark start
+        run: echo "S=$(date +%s.%N)" >> "$GITHUB_ENV"
+      - uses: actions/cache/save@v4
+        with:
+          path: ~/apt-debs
+          key: cachebench-debs-${{ github.run_id }}
+      - run: echo "BENCH aptb-seed save $(echo "$(date +%s.%N) - $S" | bc)"
+
+  aptb:
+    needs: aptb-seed
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: {rep: [1, 2, 3]}
+    env: {JOB: aptb}
+    steps:
+      - uses: erlef/setup-beam@v1
+        with: {otp-version: "28", elixir-version: "1.19"}
+      - name: Setup project
+        run: |
+          mix new bench && cd bench
+          sed -i 's|# {:dep_from_hexpm, "~> 0.3.0"}|{:playwright, "1.65.0-rc.1", hex: :playwright_ex}|' mix.exs
+          mix deps.get && mix compile
+      - name: Mark start
+        run: echo "S=$(date +%s.%N)" >> "$GITHUB_ENV"
+      - name: Restore debs
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: cachebench-debs-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Bench
+        working-directory: bench
+        run: |
+          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH $JOB rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
+          sudo cp ~/apt-debs/*.deb /var/cache/apt/archives/
+          echo "BENCH aptb rep=${{ matrix.rep }} restore+copy $(echo "$(date +%s.%N) - $S" | bc)"
+          mix playwright.install --no-browsers && mix playwright.install -- chromium
+          t deps-chromium mix playwright.install -- chromium --with-deps
