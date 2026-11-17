@@ -1,0 +1,86 @@
+name: cache-bench
+on:
+  push:
+    branches: [cache-bench]
+  workflow_dispatch:
+
+env:
+  MIX_ENV: test
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: erlef/setup-beam@v1
+        with: {otp-version: "28", elixir-version: "1.19"}
+      - name: Setup project
+        run: |
+          mix new bench && cd bench
+          sed -i 's|# {:dep_from_hexpm, "~> 0.3.0"}|{:playwright, "1.65.0-rc.1", hex: :playwright_ex}|' mix.exs
+          mix deps.get && mix compile
+      - run: cd bench && mix playwright.install --no-browsers && mix playwright.install -- chromium
+      - run: du -sh ~/.cache/playwright ~/.cache/ms-playwright
+      - uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/playwright
+            ~/.cache/ms-playwright
+          key: cachebench-${{ github.run_id }}
+
+  cold:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: {rep: [1, 2, 3]}
+    steps:
+      - uses: erlef/setup-beam@v1
+        with: {otp-version: "28", elixir-version: "1.19"}
+      - name: Setup project
+        run: |
+          mix new bench && cd bench
+          sed -i 's|# {:dep_from_hexpm, "~> 0.3.0"}|{:playwright, "1.65.0-rc.1", hex: :playwright_ex}|' mix.exs
+          mix deps.get && mix compile
+      - name: Bench
+        working-directory: bench
+        run: |
+          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH cold rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
+          t driver mix playwright.install --no-browsers
+          du -sh ~/.cache/playwright
+          t chromium mix playwright.install -- chromium
+          du -sh ~/.cache/ms-playwright
+          t deps mix playwright.install -- chromium --with-deps
+          t firefox mix playwright.install -- firefox
+          t webkit mix playwright.install -- webkit
+
+  warm:
+    needs: seed
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: {rep: [1, 2, 3]}
+    steps:
+      - uses: erlef/setup-beam@v1
+        with: {otp-version: "28", elixir-version: "1.19"}
+      - name: Setup project
+        run: |
+          mix new bench && cd bench
+          sed -i 's|# {:dep_from_hexpm, "~> 0.3.0"}|{:playwright, "1.65.0-rc.1", hex: :playwright_ex}|' mix.exs
+          mix deps.get && mix compile
+      - name: Mark start
+        run: echo "RESTORE_START=$(date +%s.%N)" >> "$GITHUB_ENV"
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/playwright
+            ~/.cache/ms-playwright
+          key: cachebench-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Bench
+        working-directory: bench
+        run: |
+          echo "BENCH warm rep=${{ matrix.rep }} restore $(echo "$(date +%s.%N) - $RESTORE_START" | bc)"
+          du -sh ~/.cache/playwright ~/.cache/ms-playwright
+          t() { local n=$1; shift; local s=$(date +%s.%N); "$@"; local e=$(date +%s.%N); echo "BENCH warm rep=${{ matrix.rep }} $n $(echo "$e - $s" | bc)"; }
+          t driver mix playwright.install --no-browsers
+          t chromium mix playwright.install -- chromium
+          t deps mix playwright.install -- chromium --with-deps
