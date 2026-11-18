@@ -67,7 +67,7 @@ defmodule Demo.MixProject do
       {:phoenix_storybook, "1.5.0"},
       {:playwright,
        github: "ftes/playwright_ex",
-       ref: "5fe2de9880c7b7b7b53c947e4ed18ca21d3512cc",
+       ref: "3e9b47591e9fb72ea2fc1648f485af034c6c111b",
        only: [:dev, :test]},
       {:tz, "~> 0.28"}
     ]

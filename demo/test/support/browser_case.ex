@@ -18,7 +18,7 @@ defmodule DemoWeb.BrowserCase do
       ),
       Map.put(
         Test.parameters(
-          Map.put(Playwright.device("Desktop Chrome"), :reduced_motion, :reduce)
+          Keyword.merge(Playwright.device("Desktop Chrome"), reduced_motion: :reduce)
         ),
         :project,
         "chromium-reduced-motion"
