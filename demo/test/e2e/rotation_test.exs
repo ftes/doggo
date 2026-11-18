@@ -4,7 +4,6 @@ defmodule DemoWeb.E2E.RotationTest do
     parameterize: DemoWeb.BrowserCase.projects()
 
   alias Playwright.Clock
-  alias Playwright.Mouse
 
   defp dot(page, n), do: Page.get_by_role(page, :tab, name: "Slide #{n}")
 

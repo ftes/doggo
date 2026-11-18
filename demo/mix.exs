@@ -65,7 +65,10 @@ defmodule Demo.MixProject do
       {:phoenix_live_reload, "== 1.7.0", only: :dev},
       {:phoenix_live_view, "== 1.2.13"},
       {:phoenix_storybook, "1.5.0"},
-      {:playwright, github: "ftes/playwright_ex", ref: "0217c3445a6845750cdd2a9ce0355588b0147356", only: [:dev, :test]},
+      {:playwright,
+       github: "ftes/playwright_ex",
+       ref: "5fe2de9880c7b7b7b53c947e4ed18ca21d3512cc",
+       only: [:dev, :test]},
       {:tz, "~> 0.28"}
     ]
   end

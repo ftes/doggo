@@ -61,10 +61,8 @@ defmodule DemoWeb.E2E.ToggletipTest do
     )
   end
 
-  test "returns focus to the button on Escape from the panel", %{
-    page: page,
-    browser_name: browser_name
-  } do
+  test "returns focus to the button on Escape from the panel", %{page: page} do
+    %{browser_name: browser_name} = Test.info().use
     Locator.focus!(button(page))
     page |> Page.keyboard() |> Keyboard.press!("Enter")
     Expect.to_be_visible!(panel(page))
